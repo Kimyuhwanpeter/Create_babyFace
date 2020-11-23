@@ -40,7 +40,7 @@ flags.DEFINE_string("pre_checkpoint_path", "", "Saved checkpoint path")
 
 flags.DEFINE_string("save_checkpoint", "", "Save checkpoint")
 
-flags.DEFINE_string("save_samples", "", "Save training sample images")
+flags.DEFINE_string("save_samples", "C:/Users/Yuhwan/Pictures/sample", "Save training sample images")
 
 flags.DEFINE_string("graphs", "", "Save loss graphs")
 
@@ -95,15 +95,58 @@ def run_model(model, images, training=True):
 def cal_loss(from_father_mod, from_mother_mod, from_baby_mod,
             father_discrim, mother_discrim, baby_discrim,
             A_images, B_images, C_images):
-    with tf.GradientTape() as g_tape, tf.GradientTape() as d_tape:
+    with tf.GradientTape(persistent=True) as g_tape, tf.GradientTape() as d_tape:
         father_part = run_model(from_father_mod, A_images, True)
         mother_part = run_model(from_mother_mod, B_images, True)
-        similarity = (father_part * mother_part) / (tf.math.sqrt(father_part*father_part) * tf.math.sqrt(mother_part*mother_part))
 
+        similarity = (father_part * mother_part) / (tf.math.sqrt(father_part*father_part) * tf.math.sqrt(mother_part*mother_part))
         baby_part = run_model(from_baby_mod, similarity, True)
-        a = 0
+        
+        fake_baby_from_father = run_model(father_discrim, father_part, True)
+        fake_baby_from_mother = run_model(mother_discrim, mother_part, True)
+        real_baby_from_father = run_model(father_discrim, A_images, True)
+        real_baby_from_mother = run_model(mother_discrim, B_images, True)
+        fake_baby = run_model(baby_discrim, baby_part, True)
+
+        if random() > 0.5:
+            g_baby_IDloss = tf.reduce_mean(tf.abs(baby_part - tf.expand_dims(C_images[1], 0)))
+            real_baby = run_model(baby_discrim, tf.expand_dims(C_images[1], 0), True)
+        else:
+            g_baby_IDloss = tf.reduce_mean(tf.abs(baby_part - tf.expand_dims(C_images[0], 0)))
+            real_baby = run_model(baby_discrim, tf.expand_dims(C_images[0], 0), True)
+
+        g_father_IDloss = tf.reduce_mean(tf.abs(father_part - A_images))
+        g_mother_IDloss = tf.reduce_mean(tf.abs(mother_part - B_images))
+
+        g_loss = tf.reduce_mean((tf.ones_like(fake_baby_from_father) - fake_baby_from_father)**2) \
+                + tf.reduce_mean((tf.ones_like(fake_baby_from_mother) - fake_baby_from_mother)**2) \
+                + tf.reduce_mean((tf.ones_like(fake_baby) - fake_baby)**2) \
+                + (g_baby_IDloss + g_father_IDloss + g_mother_IDloss) * 5.0
+
+        d_loss = (tf.reduce_mean((tf.zeros_like(fake_baby_from_father) - fake_baby_from_father)**2) + tf.reduce_mean((tf.ones_like(real_baby_from_father) - real_baby_from_father)**2)) * 0.5 \
+                + (tf.reduce_mean((tf.zeros_like(fake_baby_from_mother) - fake_baby_from_mother)**2) + tf.reduce_mean((tf.ones_like(real_baby_from_mother) - real_baby_from_mother)**2)) * 0.5 \
+                + (tf.reduce_mean((tf.zeros_like(fake_baby) - fake_baby)**2) + tf.reduce_mean((tf.ones_like(real_baby) - real_baby)**2)) * 0.5
+
+    g_grads = g_tape.gradient(g_loss, from_father_mod.trainable_variables + from_mother_mod.trainable_variables)
+    g_grads2 = g_tape.gradient(g_loss, from_baby_mod.trainable_variables)
+
+    d_grads = d_tape.gradient(d_loss, father_discrim.trainable_variables + mother_discrim.trainable_variables + baby_discrim.trainable_variables)
+
+    g_optim.apply_gradients(zip(g_grads, from_father_mod.trainable_variables + from_mother_mod.trainable_variables))
+    g_optim.apply_gradients(zip(g_grads2, from_baby_mod.trainable_variables))
+
+    d_optim.apply_gradients(zip(d_grads, father_discrim.trainable_variables + mother_discrim.trainable_variables + baby_discrim.trainable_variables))
 
     return g_loss, d_loss
+
+def save_fig_baby(C, count):
+
+    C_real_img = np.zeros([256, 512, 3], dtype=np.float32)
+    for i in range(FLAGS.batch_size + 1):
+
+        C_real_img[:, 256*i:256*(i + 1), :] = C[i]
+
+    plt.imsave(FLAGS.save_samples + "/"+ "_real_C_{}.jpg".format(count), C_real_img * 0.5 + 0.5)
 
 def main():
     from_father_mod = parents_generator(input_shape=(FLAGS.img_size, FLAGS.img_size, 3))
@@ -169,6 +212,22 @@ def main():
                 G_loss, D_loss = cal_loss(from_father_mod, from_mother_mod, from_baby_mod,
                          father_discrim, mother_discrim, baby_discrim,
                          A_images, B_images, C_images)
+
+                print(G_loss, D_loss)
+
+                if count % 100 == 0:
+                    father_part = run_model(from_father_mod, A_images, False)
+                    mother_part = run_model(from_mother_mod, B_images, False)
+                    similarity = (father_part * mother_part) / (tf.math.sqrt(father_part*father_part) * tf.math.sqrt(mother_part*mother_part))
+                    baby_part = run_model(from_baby_mod, similarity, False)
+
+                    save_fig_baby(C_images, count)
+                    plt.imsave(FLAGS.save_samples + "/"+ "_real_A_{}.jpg".format(count), A_images[0] * 0.5 + 0.5)
+                    plt.imsave(FLAGS.save_samples + "/"+ "_real_B_{}.jpg".format(count), B_images[0] * 0.5 + 0.5)
+                    plt.imsave(FLAGS.save_samples + "/"+ "_fake_C_{}.jpg".format(count), baby_part[0] * 0.5 + 0.5)
+
+
+                count += 1
 
 if __name__ == "__main__":
     main()
