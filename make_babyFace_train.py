@@ -213,7 +213,8 @@ def main():
                          father_discrim, mother_discrim, baby_discrim,
                          A_images, B_images, C_images)
 
-                print(G_loss, D_loss)
+                #print(G_loss, D_loss)
+                print("Epoch: {} [{}/{}] g_loss = {}, d_loss = {}".format(epoch, step + 1, AB_idx, G_loss, D_loss))
 
                 if count % 100 == 0:
                     father_part = run_model(from_father_mod, A_images, False)
