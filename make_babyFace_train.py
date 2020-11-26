@@ -227,7 +227,17 @@ def main():
                     plt.imsave(FLAGS.save_samples + "/"+ "_real_B_{}.jpg".format(count), B_images[0] * 0.5 + 0.5)
                     plt.imsave(FLAGS.save_samples + "/"+ "_fake_C_{}.jpg".format(count), baby_part[0] * 0.5 + 0.5)
 
-
+                if count % 1000 == 0:
+                    num_ = int(count // 1000)
+                    model_dir = "%s/%s" % (FLAGS.save_checkpoint, num_)
+                    ckpt = tf.train.Checkpoint(from_father_mod=from_father_mod,
+                                               from_mother_mod=from_mother_mod,
+                                               from_baby_mod=from_baby_mod,
+                                               g_optim=g_optim,
+                                               d_optim=d_optim)
+                    ckpt_dir = model_dir + "/" + "baby_from_parents_model_{}.ckpt".format(count)
+                    ckpt.save(ckpt_dir)
+                    
                 count += 1
 
 if __name__ == "__main__":
